@@ -40,6 +40,7 @@ import pygame
 import pygame.gfxdraw
 import requests
 from PIL import Image, ImageDraw
+from homeassistant_api import Client
 
 PATH = sys.path[0] + "/"
 ICON_PATH = os.path.join(PATH, 'icons')
@@ -288,6 +289,7 @@ UPDATING = False
 JSON_DATA_WEATHER = {}
 JSON_DATA_CALLS = {}
 JSON_DATA_POWER = {}
+POWER_DATA = 0
 
 
 def image_factory(image_path):
@@ -854,10 +856,41 @@ class Update(object):
                                                   JSON_DATA_WEATHER['hourly_precipitation_probability'])
 
         elif DISPLAY_MODES[DISPLAY_MODE] == "PowerCalls":
-            print(JSON_DATA_CALLS)
+
+            DrawImage(new_surf, images['power'], size=50).draw_position(pos=(10, 180))
+
+            if POWER_DATA > 0:
+                DrawString(new_surf, str(POWER_DATA) + 'W', FONT_BIG, RED, 182).left(60, 0)
+            else:
+                DrawString(new_surf, str(POWER_DATA) + 'W', FONT_BIG, GREEN, 182).left(60, 0)
+
             for i in range(len(JSON_DATA_CALLS["calls_number"])):
-                DrawImage(new_surf, images['c' + str(JSON_DATA_CALLS["calls_state"][i])], 180 + i * 17 + 4, size=15).left(5)
-                DrawString(new_surf, JSON_DATA_CALLS["calls_number"][i], FONT_SMALL_BOLD, MAIN_FONT, 180 + i * 17).left(25, 0)
+                call_number = JSON_DATA_CALLS["calls_number"][i]
+                DrawImage(new_surf, images['c' + str(JSON_DATA_CALLS["calls_state"][i])], 250 + i * 19 + 4,
+                          size=15).left(5)
+                DrawString(new_surf, JSON_DATA_CALLS["calls_number"][i], FONT_SMALL_BOLD, MAIN_FONT, 250 + i * 19).left(
+                    25, 0)
+
+                yesterday = datetime.date.today() - datetime.timedelta(days=1)
+                calldate = datetime.datetime(JSON_DATA_CALLS["calls_year"][i], JSON_DATA_CALLS["calls_month"][i],
+                                             JSON_DATA_CALLS["calls_day"][i])
+
+                hour_str = "{:02d}".format(JSON_DATA_CALLS["calls_hour"][i])
+                minute_str = "{:02d}".format(JSON_DATA_CALLS["calls_minute"][i])
+
+                if calldate == datetime.date.today():
+                    DrawString(new_surf, 'Heute', FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
+                        len(call_number) * 9 + 25, 0)
+                    DrawString(new_surf, hour_str + ':' + minute_str, FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
+                        len(call_number) * 9 + 25, 0)
+                elif calldate == yesterday:
+                    DrawString(new_surf, 'Gestern', FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
+                        len(call_number) * 9 + 25, 0)
+                    DrawString(new_surf, hour_str + ':' + minute_str, FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
+                        len(call_number) * 9 + 25, 0)
+                else:
+                    DrawString(new_surf, str(calldate.day) + '.' + str(calldate.month) + '.' + str(calldate.year),
+                               FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(len(call_number) * 9 + 25, 0)
 
         weather_surf = new_surf
 
@@ -885,6 +918,20 @@ class Update(object):
     def run():
         Update.update_json()
         Update.read_json()
+
+
+class PowerThread(threading.Thread):
+    def run(self):
+        global POWER_DATA
+
+        while 1:
+            with Client(
+                    'http://192.168.178.4:8123/api',
+                    'REPLACE WITH TOKEN'
+            ) as client:
+                POWER_DATA = int(client.get_state(entity_id='sensor.amis_power_saldo_w').state)
+
+            time.sleep(1)
 
 
 def format_date(date_string, date_format):
@@ -1006,6 +1053,10 @@ def create_scaled_surf(surf, aa=False):
         scaled_surf = pygame.transform.scale(surf, (SURFACE_WIDTH, SURFACE_HEIGHT))
 
     return scaled_surf
+
+
+timer = PowerThread()
+timer.start()
 
 
 def loop():
