@@ -4,8 +4,10 @@
 # MIT License
 #
 # Copyright (c) 2016 LoveBootCaptain (https://github.com/LoveBootCaptain)
-# Author: Stephan Ansorge aka LoveBootCaptain
-#
+# Copyright (c) 2025 FabianZweckinger (https://github.com/FabianZweckinger)
+
+# Author: Stephan Ansorge aka LoveBootCaptain, Fabian Zweckinger
+
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
@@ -30,17 +32,15 @@ import locale
 import logging
 import math
 import os
-import random
 import sys
 import threading
 import time
 import OpenMeteoApi
-import FritzboxApi
 import pygame
 import pygame.gfxdraw
 import requests
 from PIL import Image, ImageDraw
-from homeassistant_api import Client
+import Webserver
 
 PATH = sys.path[0] + "/"
 ICON_PATH = os.path.join(PATH, 'icons')
@@ -80,6 +80,14 @@ METRIC = config['LOCALE']['METRIC']
 locale.setlocale(locale.LC_ALL, (config['LOCALE']['ISO'], 'UTF-8'))
 
 THREADS = []
+
+def start_server():
+    Webserver.run_server()
+
+if config["SERVER_MODE"]:
+    # Start webserver in a separate thread
+    server_thread = threading.Thread(target=start_server, daemon=True)
+    server_thread.start()
 
 WMO_TO_IMG = {
     0: "c01",  # Clear sky
@@ -131,7 +139,6 @@ except Exception as e:
 pygame.display.init()
 pygame.mixer.quit()
 pygame.font.init()
-pygame.mouse.set_visible(config['DISPLAY']['MOUSE'])
 pygame.display.set_caption('WeatherPiTFT')
 
 
@@ -149,29 +156,18 @@ def quit_all():
     sys.exit()
 
 
-PWM = config['DISPLAY']['PWM']
-
-if PWM:
-    logger.info(f'set PWM for brightness control to PIN {PWM}')
-    os.system(f"gpio -g mode {PWM} pwm")
-else:
-    logger.info('no PWM for brightness control configured')
-
 # display settings from theme config
 DISPLAY_WIDTH = int(config["DISPLAY"]["WIDTH"])
 DISPLAY_HEIGHT = int(config["DISPLAY"]["HEIGHT"])
 
 # the drawing area to place all text and img on
-SURFACE_WIDTH = 240
-SURFACE_HEIGHT = 320
+SURFACE_WIDTH = DISPLAY_WIDTH
+SURFACE_HEIGHT = DISPLAY_HEIGHT
 
 SCALE = float(DISPLAY_WIDTH / SURFACE_WIDTH)
 ZOOM = 1
 
-FPS = config['DISPLAY']['FPS']
-SHOW_FPS = config['DISPLAY']['SHOW_FPS']
 AA = config['DISPLAY']['AA']
-ANIMATION = config['DISPLAY']['ANIMATION']
 
 # correction for 1:1 displays like hyperpixel4 square
 if DISPLAY_WIDTH / DISPLAY_HEIGHT == 1:
@@ -208,8 +204,8 @@ if SCALE != 1:
         logger.info(f'zoom correction caused by small display')
     else:
         logger.info('screen bigger as surface area - zooming bigger')
-        SURFACE_WIDTH = int(240 * ZOOM)
-        SURFACE_HEIGHT = int(320 * ZOOM)
+        SURFACE_WIDTH = int(DISPLAY_WIDTH * ZOOM)
+        SURFACE_HEIGHT = int(DISPLAY_HEIGHT * ZOOM)
         logger.info(f'surface correction caused by bigger display')
 
     logger.info(f'SURFACE_WIDTH: {SURFACE_WIDTH} SURFACE_HEIGHT: {SURFACE_HEIGHT} ZOOM: {ZOOM}')
@@ -225,17 +221,17 @@ display_surf = pygame.Surface((SURFACE_WIDTH, SURFACE_HEIGHT))
 dynamic_surf = pygame.Surface((SURFACE_WIDTH, SURFACE_HEIGHT))
 # exclusive surface for the time
 time_surf = pygame.Surface((SURFACE_WIDTH, SURFACE_HEIGHT))
-# exclusive surface for the mouse/touch events
-mouse_surf = pygame.Surface((SURFACE_WIDTH, SURFACE_HEIGHT))
 # surface for the weather data - will only be created once if the data is updated from the api
 weather_surf = pygame.Surface((SURFACE_WIDTH, SURFACE_HEIGHT))
 
 clock = pygame.time.Clock()
 
-logger.info(f'display with {DISPLAY_WIDTH}px width and {DISPLAY_HEIGHT}px height is set to {FPS} FPS with AA {AA}')
+logger.info(f'display with {DISPLAY_WIDTH}px width and {DISPLAY_HEIGHT}px height is set with AA {AA}')
 
 BACKGROUND = tuple(theme["COLOR"]["BACKGROUND"])
 MAIN_FONT = tuple(theme["COLOR"]["MAIN_FONT"])
+MOONLIGHT = tuple(theme["COLOR"]["MOONLIGHT"])
+MOONDARK = tuple(theme["COLOR"]["MOONDARK"])
 BLACK = tuple(theme["COLOR"]["BLACK"])
 DARK_GRAY = tuple(theme["COLOR"]["DARK_GRAY"])
 WHITE = tuple(theme["COLOR"]["WHITE"])
@@ -250,46 +246,42 @@ ORANGE = tuple(theme["COLOR"]["ORANGE"])
 VIOLET = tuple(theme["COLOR"]["VIOLET"])
 COLOR_LIST = [BLUE, LIGHT_BLUE, DARK_BLUE]
 
-FONT_MEDIUM = theme["FONT"]["MEDIUM"]
+FONT_REGULAR = theme["FONT"]["MEDIUM"]
 FONT_BOLD = theme["FONT"]["BOLD"]
 DATE_SIZE = int(theme["FONT"]["DATE_SIZE"] * ZOOM)
 CLOCK_SIZE = int(theme["FONT"]["CLOCK_SIZE"] * ZOOM)
 SMALLEST_SIZE = int(theme["FONT"]["SMALLEST_SIZE"] * ZOOM)
 SMALL_SIZE = int(theme["FONT"]["SMALL_SIZE"] * ZOOM)
+MEDIUM_SIZE = int(theme["FONT"]["MEDIUM_SIZE"] * ZOOM)
 BIG_SIZE = int(theme["FONT"]["BIG_SIZE"] * ZOOM)
+HUGE_SIZE = int(theme["FONT"]["HUGE_SIZE"] * ZOOM)
 
-FONT_SMALLEST = pygame.font.Font(os.path.join(FONT_PATH, FONT_MEDIUM), SMALLEST_SIZE)
-FONT_SMALL = pygame.font.Font(os.path.join(FONT_PATH, FONT_MEDIUM), SMALL_SIZE)
+FONT_SMALLEST = pygame.font.Font(os.path.join(FONT_PATH, FONT_REGULAR), SMALLEST_SIZE)
+FONT_SMALLEST_BOLD = pygame.font.Font(os.path.join(FONT_PATH, FONT_BOLD), SMALLEST_SIZE)
+FONT_SMALL = pygame.font.Font(os.path.join(FONT_PATH, FONT_REGULAR), SMALL_SIZE)
 FONT_SMALL_BOLD = pygame.font.Font(os.path.join(FONT_PATH, FONT_BOLD), SMALL_SIZE)
-FONT_BIG = pygame.font.Font(os.path.join(FONT_PATH, FONT_MEDIUM), BIG_SIZE)
+FONT_MEDIUM = pygame.font.Font(os.path.join(FONT_PATH, FONT_REGULAR), MEDIUM_SIZE)
+FONT_MEDIUM_BOLD = pygame.font.Font(os.path.join(FONT_PATH, FONT_BOLD), MEDIUM_SIZE)
+FONT_BIG = pygame.font.Font(os.path.join(FONT_PATH, FONT_REGULAR), BIG_SIZE)
 FONT_BIG_BOLD = pygame.font.Font(os.path.join(FONT_PATH, FONT_BOLD), BIG_SIZE)
+FONT_HUGE = pygame.font.Font(os.path.join(FONT_PATH, FONT_REGULAR), HUGE_SIZE)
+FONT_BIG_BOLD = pygame.font.Font(os.path.join(FONT_PATH, FONT_BOLD), HUGE_SIZE)
 DATE_FONT = pygame.font.Font(os.path.join(FONT_PATH, FONT_BOLD), DATE_SIZE)
 CLOCK_FONT = pygame.font.Font(os.path.join(FONT_PATH, FONT_BOLD), CLOCK_SIZE)
 
 WEATHERICON = 'unknown'
 
-FORECASTICON_DAY_1 = 'unknown'
-FORECASTICON_DAY_2 = 'unknown'
-FORECASTICON_DAY_3 = 'unknown'
-
-DISPLAY_MODES = ["ForecastSunsetWind", "HourlyTemperaturesPrecipitation", "PowerCalls"]
-DISPLAY_MODE = 2
-MODE_SWITCH_TIME = 10
+FORECASTICON_DAYS = ['unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown']
 
 CONNECTION_ERROR = True
 REFRESH_ERROR = True
 PATH_ERROR = True
-PRECIPTYPE = 'NULL'
-PRECIPCOLOR = WHITE
 
 CONNECTION = False
 READING = False
 UPDATING = False
 
 JSON_DATA_WEATHER = {}
-JSON_DATA_CALLS = {}
-JSON_DATA_POWER = {}
-POWER_DATA = 0
 
 
 def image_factory(image_path):
@@ -301,63 +293,6 @@ def image_factory(image_path):
         else:
             result[image_id] = Image.open(os.path.join(image_path, img))
     return result
-
-
-class Particles(object):
-    def __init__(self):
-        self.size = int(20 * ZOOM)
-        self.count = 20
-        self.surf = pygame.Surface((self.size, self.size))
-
-    def create_particle_list(self):
-
-        particle_list = []
-
-        for i in range(self.count):
-            x = random.randrange(0, self.size)
-            y = random.randrange(0, self.size)
-            w = int(1 * ZOOM)
-            h = random.randint(int(2 * ZOOM), int(3 * ZOOM))
-            speed = random.choice([1, 2, 3])
-            color = random.choice(COLOR_LIST)
-            direct = random.choice([0, 0, 1])
-            particle_list.append([x, y, w, h, speed, color, direct])
-        return particle_list
-
-    def move(self, surf, particle_list):
-        # Process each snow flake in the list
-        self.surf.fill(BACKGROUND)
-        self.surf.set_colorkey(BACKGROUND)
-
-        if not PRECIPTYPE == config['LOCALE']['PRECIP_STR']:
-
-            for i in range(len(particle_list)):
-
-                particle = particle_list[i]
-                x, y, w, h, speed, color, direct = particle
-
-                # Draw the snow flake
-                if PRECIPTYPE == config['LOCALE']['RAIN_STR']:
-                    pygame.draw.rect(self.surf, color, (x, y, w, h), 0)
-                else:
-                    pygame.draw.rect(self.surf, PRECIPCOLOR, (x, y, 2, 2), 0)
-
-                # Move the snow flake down one pixel
-                particle_list[i][1] += speed if PRECIPTYPE == config['LOCALE']['RAIN_STR'] else 1
-                if random.choice([True, False]):
-                    if PRECIPTYPE == config['LOCALE']['SNOW_STR']:
-                        particle_list[i][0] += 1 if direct else 0
-
-                # If the snow flake has moved off the bottom of the screen
-                if particle_list[i][1] > self.size:
-                    # Reset it just above the top
-                    y -= self.size
-                    particle_list[i][1] = y
-                    # Give it a new x position
-                    x = random.randrange(0, self.size)
-                    particle_list[i][0] = x
-
-            surf.blit(self.surf, (int(155 * ZOOM), int(140 * ZOOM)))
 
 
 class DrawString:
@@ -531,91 +466,68 @@ class DrawImage:
                 self.surf.blit(self.image, (int(draw_x), self.y))
 
 
-def interpolate_values(values, interpolation_factor):
-    interpolated_values = []
-    for index, value in enumerate(values):
-        interpolated_values.append(value)
-        if index < len(values) - 1:
-            next_value = values[index + 1]
-            delta = (next_value - value) / interpolation_factor
-            for i in range(interpolation_factor - 1):
-                interpolated_values.append(value + delta * i)
-        else:
-            interpolated_values.append(value)
-    return interpolated_values
-
-
-def draw_hourly_temp(surf, y, size_x, size_y, hourly_temperatures):
-    hourly_temperatures_interpolated = interpolate_values(hourly_temperatures, 16)  # Set interpolation quality
-
-    _size_x = len(hourly_temperatures_interpolated)
-
-    image = Image.new("RGBA", (_size_x, size_y))
+def draw_hourly_temp(surf, y, size_x, size_y, hourly_temperatures, width=2, lower_offset=10):
+    image = Image.new("RGBA", (size_x , size_y+width+lower_offset))
     draw = ImageDraw.Draw(image)
 
-    temp_min = min(hourly_temperatures_interpolated)
-    temp_max = max(hourly_temperatures_interpolated)
+    temp_min = min(hourly_temperatures)
+    temp_max = max(hourly_temperatures)
 
-    for x in range(len(hourly_temperatures_interpolated)):
-        temp_normalized = (hourly_temperatures_interpolated[x] - temp_max) / (temp_min - temp_max)
-        draw.line(((x, temp_normalized * size_y), (x, size_y)), fill=DARK_YELLOW)
-        draw.line(((x, temp_normalized * size_y + 1), (x, temp_normalized * size_y - 1)), fill=YELLOW)
+    segment_x_size = size_x / len(hourly_temperatures)
+    hour_count=1
+    for x in range(len(hourly_temperatures)):
+        temp_normalized = (hourly_temperatures[x] - temp_max) / (temp_min - temp_max)
+        draw.rectangle((x * segment_x_size, temp_normalized * size_y, (x+1) * segment_x_size, size_y + lower_offset), fill=YELLOW)
+        draw.rectangle((x * segment_x_size, temp_normalized * size_y, (x+1) * segment_x_size, temp_normalized * size_y + width), fill=DARK_YELLOW)
+
+        if x % 4 == 0:
+            DrawString(surf, str(round(hourly_temperatures[x])) + "°C", FONT_SMALL_BOLD,
+                       BLACK, y + temp_normalized * size_y + width - 22).left(x * segment_x_size + 30)
+            new_datetime = datetime.datetime.now() + datetime.timedelta(hours=hour_count)
+            DrawString(surf, str(new_datetime.hour).rjust(2, '0') + ":00", FONT_SMALLEST,
+                       BLACK, y + size_y + 14).left(x * segment_x_size + 27)
+            hour_count = hour_count + 4
 
     logger.debug(f'hourly temperature plot min. temp: {temp_min} max. temp: {temp_max}')
 
-    image = image.resize((size_x, size_y), Image.LANCZOS if AA else Image.BILINEAR)
     image = pygame.image.fromstring(image.tobytes(), image.size, image.mode)
 
-    x = SURFACE_WIDTH - size_x * 1.1
+    x = SURFACE_WIDTH - size_x * 1.07
 
     surf.blit(image, (x, y))
 
-    for i in range(6):
-        new_datetime = datetime.datetime.now() + datetime.timedelta(hours=i * 4 + 1)
-        DrawString(surf, str(new_datetime.hour).rjust(2, '0') + ":00", FONT_SMALLEST, ORANGE, y - size_y * 0.55).left(
-            35 + i * 28, 30)
-
-    DrawString(surf, str(round(temp_max)) + "°C", FONT_SMALL_BOLD, ORANGE, y - 4).right(193)
-    DrawString(surf, str(round(temp_min)) + "°C", FONT_SMALL_BOLD, ORANGE, y + size_y * 0.7).right(193)
 
 
-def draw_hourly_precipitation_probability(surf, y, size_x, size_y, hourly_precip_prob):
-    hourly_precip_prob_interpolated = interpolate_values(hourly_precip_prob, 16)  # Set interpolation quality
-
-    _size_x = len(hourly_precip_prob_interpolated)
-
-    image = Image.new("RGBA", (_size_x, size_y))
+def draw_hourly_precipitation_probability(surf, y, size_x, size_y, hourly_precip_prob, width=2, lower_offset=0):
+    image = Image.new("RGBA", (size_x , size_y+width+lower_offset))
     draw = ImageDraw.Draw(image)
 
-    precip_prob_min = -1
-    precip_prob_max = 101
+    prec_min = 0
+    prec_max = 100
 
-    for x in range(len(hourly_precip_prob_interpolated)):
-        temp_normalized = (hourly_precip_prob_interpolated[x] - precip_prob_max) / (precip_prob_min - precip_prob_max)
-        draw.line(((x, temp_normalized * size_y), (x, size_y)), fill=BLUE)
+    segment_x_size = size_x / len(hourly_precip_prob)
+    for x in range(len(hourly_precip_prob)):
+        temp_normalized = (hourly_precip_prob[x] - prec_max) / (prec_min - prec_max)
+        draw.rectangle((x * segment_x_size, temp_normalized * size_y, (x+1) * segment_x_size, size_y + lower_offset), fill=BLUE)
+        draw.rectangle((x * segment_x_size, temp_normalized * size_y, (x+1) * segment_x_size, temp_normalized * size_y + width), fill=DARK_BLUE)
 
-    logger.debug(f'hourly precipitation plot min. temp: {precip_prob_min} max. temp: {precip_prob_max}')
+        if x % 3 == 0:
+            DrawString(surf, str(round(hourly_precip_prob[x])) + "%", FONT_SMALL_BOLD,
+                       BLACK, y + temp_normalized * size_y + width - 22).left(x * segment_x_size + 30)
 
-    image = image.resize((size_x, size_y), Image.LANCZOS if AA else Image.BILINEAR)
+    logger.debug(f'hourly precipitation probabilty plot min. temp: {prec_min} max. probabilty plot: {prec_max}')
+
     image = pygame.image.fromstring(image.tobytes(), image.size, image.mode)
 
-    x = SURFACE_WIDTH - size_x * 1.1
+    x = SURFACE_WIDTH - size_x * 1.07
 
     surf.blit(image, (x, y))
-
-    DrawString(surf, "100%", FONT_SMALL_BOLD, BLUE, y - 4).right(193)
-    DrawString(surf, "0%", FONT_SMALL_BOLD, BLUE, y + size_y * 0.7).right(193)
 
 
 class Update(object):
 
     @staticmethod
     def update_json():
-
-        if PWM:
-            brightness = get_brightness()
-            os.system(f'gpio -g pwm {PWM} {brightness}') if PWM is not False else logger.info('not setting pwm')
-            logger.info(f'set brightness: {brightness}, pwm configured: {PWM}')
 
         global THREADS, CONNECTION_ERROR, CONNECTION
 
@@ -628,16 +540,15 @@ class Update(object):
         CONNECTION = pygame.time.get_ticks() + 1500  # 1.5 seconds
 
         try:
-
             logger.info(f'connecting to server: {SERVER}')
 
             current_datetime = datetime.datetime.now()
 
             weather = OpenMeteoApi.get_weather(current_datetime)
-            calls = FritzboxApi.get_calls(current_datetime, 3)
-            data = {'weather': weather, 'calls': calls}
 
-            with open(LOG_PATH + 'latest_weather.json', 'w+') as outputfile:
+            data = {'weather': weather}
+
+            with open(LOG_PATH + '_latest_weather.json', 'w+') as outputfile:
                 json.dump(data, outputfile, indent=2, sort_keys=True)
 
             logger.info('json file saved')
@@ -653,7 +564,7 @@ class Update(object):
     @staticmethod
     def read_json():
 
-        global THREADS, JSON_DATA_WEATHER, JSON_DATA_CALLS, JSON_DATA_POWER, REFRESH_ERROR, READING
+        global THREADS, JSON_DATA_WEATHER, REFRESH_ERROR, READING
 
         thread = threading.Timer(config["TIMER"]["RELOAD"], Update.read_json)
 
@@ -665,7 +576,7 @@ class Update(object):
 
         try:
 
-            data = open(LOG_PATH + 'latest_weather.json').read()
+            data = open(LOG_PATH + '_latest_weather.json').read()
 
             new_json_data = json.loads(data)
 
@@ -673,7 +584,6 @@ class Update(object):
             logger.info(f'{new_json_data}')
 
             JSON_DATA_WEATHER = new_json_data['weather']
-            JSON_DATA_CALLS = new_json_data['calls']
 
             REFRESH_ERROR = False
 
@@ -688,40 +598,60 @@ class Update(object):
     @staticmethod
     def icon_path():
 
-        global WEATHERICON, FORECASTICON_DAY_1, \
-            FORECASTICON_DAY_2, FORECASTICON_DAY_3, PRECIPTYPE, PRECIPCOLOR, UPDATING
+        global WEATHERICON, FORECASTICON_DAYS, PRECIPTYPE, PRECIPCOLOR, UPDATING
 
         icon_extension = '.png'
-        day_or_night = 'n'  # TODO Proper implementation
+        day_or_night = 'd'
 
         updated_list = []
-        icon = WMO_TO_IMG[JSON_DATA_WEATHER['current_weathercode']]
 
-        forecast_icon_1 = WMO_TO_IMG[JSON_DATA_WEATHER['daily_weathercodes'][1]]
-        forecast_icon_2 = WMO_TO_IMG[JSON_DATA_WEATHER['daily_weathercodes'][2]]
-        forecast_icon_3 = WMO_TO_IMG[JSON_DATA_WEATHER['daily_weathercodes'][3]]
+        forecast_icons = []
+        for i in range(7):
+            forecast_icons.append(str(WMO_TO_IMG[JSON_DATA_WEATHER['daily_weathercodes'][i]]))
 
-        forecast = (str(icon), str(forecast_icon_1), str(forecast_icon_2), str(forecast_icon_3))
+        logger.debug(forecast_icons)
 
-        logger.debug(forecast)
+        logger.debug(f'validating path: {forecast_icons}')
 
-        logger.debug(f'validating path: {forecast}')
+        # Current weather:
+        df_sun = theme["DATE_FORMAT"]["SUNRISE_SUNSET"]
+        new_datetime = datetime.datetime.now()
 
-        for icon in forecast:
-            if os.path.isfile(os.path.join(ICON_PATH, icon + day_or_night + icon_extension)):
+        sunrise = format_datetime(JSON_DATA_WEATHER['current_sunrise'], df_sun)
+        sunset = format_datetime(JSON_DATA_WEATHER['current_sunset'], df_sun)
+
+        today_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        sunrise_with_date = today_date + " " + sunrise
+        sunset_with_date = today_date + " " + sunset
+
+        sunrise_time = datetime.datetime.strptime(sunrise_with_date, "%Y-%m-%d %H:%M")
+        sunset_time = datetime.datetime.strptime(sunset_with_date, "%Y-%m-%d %H:%M")
+
+        # Current weather day or night
+        current_icon = str(WMO_TO_IMG[JSON_DATA_WEATHER['current_weathercode']])
+
+        day_or_night = 'd'
+        if sunset_time < new_datetime or new_datetime < sunrise_time:
+            day_or_night = 'n'
+        if os.path.isfile(os.path.join(ICON_PATH, current_icon + day_or_night + icon_extension)):
+            logger.debug(f'TRUE : {current_icon}')
+            updated_list.append(current_icon + day_or_night)
+        else:
+            logger.warning(f'FALSE : {current_icon}')
+            updated_list.append('unknown')
+
+
+        for icon in forecast_icons:
+            if os.path.isfile(os.path.join(ICON_PATH, icon + 'd' + icon_extension)):
                 logger.debug(f'TRUE : {icon}')
-                updated_list.append(icon + day_or_night)
-
+                updated_list.append(icon + 'd')
             else:
-
                 logger.warning(f'FALSE : {icon}')
-
                 updated_list.append('unknown')
 
         WEATHERICON = updated_list[0]
-        FORECASTICON_DAY_1 = updated_list[1]
-        FORECASTICON_DAY_2 = updated_list[2]
-        FORECASTICON_DAY_3 = updated_list[3]
+        FORECASTICON_DAYS = [updated_list[1], updated_list[2], updated_list[3], updated_list[4], updated_list[5],
+                             updated_list[6]]
 
         global PATH_ERROR
 
@@ -740,167 +670,93 @@ class Update(object):
     @staticmethod
     def get_precip_type():
 
-        global JSON_DATA_WEATHER, PRECIPCOLOR, PRECIPTYPE
-
-        precipitation_sum = int(JSON_DATA_WEATHER['daily_precipitation_sum'][0])
-        rain_sum = float(JSON_DATA_WEATHER['daily_rain_sum'][0])
-        snowfall_sum = float(JSON_DATA_WEATHER['daily_snowfall_sum'][0])
-
-        if precipitation_sum == 0:
-
-            PRECIPTYPE = config['LOCALE']['PRECIP_STR']
-            PRECIPCOLOR = GREEN
-
-        else:
-
-            if rain_sum > snowfall_sum:
-
-                PRECIPTYPE = config['LOCALE']['RAIN_STR']
-                PRECIPCOLOR = BLUE
-
-            else:
-
-                PRECIPTYPE = config['LOCALE']['SNOW_STR']
-                PRECIPCOLOR = WHITE
-
-        logger.info(f'update PRECIPSUM to: {precipitation_sum} %')
-        logger.info(f'update PRECIPTYPE to: {PRECIPTYPE}')
-        logger.info(f'update PRECIPCOLOR to: {PRECIPCOLOR}')
+        global JSON_DATA_WEATHER
 
         Update.create_surface()
 
     @staticmethod
     def create_surface():
 
-        temp_out = str(round(JSON_DATA_WEATHER["current_temperature"]))
-        temp_out_unit = "°C" if METRIC else "°F"
-        temp_out_string = str(temp_out + temp_out_unit)
-        precip = JSON_DATA_WEATHER["current_precipitation_probability"]
-        precip_string = str(f'{precip} %')
-
         global weather_surf, UPDATING
 
         new_surf = pygame.Surface((SURFACE_WIDTH, SURFACE_HEIGHT))
         new_surf.fill(BACKGROUND)
+
         df_forecast = theme["DATE_FORMAT"]["FORECAST_DAY"]
         df_sun = theme["DATE_FORMAT"]["SUNRISE_SUNSET"]
-
-        day_1_ts = format_date(JSON_DATA_WEATHER['daily_dates'][0], df_forecast)
-        day_2_ts = format_date(JSON_DATA_WEATHER['daily_dates'][1], df_forecast)
-        day_3_ts = format_date(JSON_DATA_WEATHER['daily_dates'][2], df_forecast)
-
-        day_1_min_max_temp = f"{int(JSON_DATA_WEATHER['daily_temperatures_min'][0])} | {int(JSON_DATA_WEATHER['daily_temperatures_max'][0])}"
-        day_2_min_max_temp = f"{int(JSON_DATA_WEATHER['daily_temperatures_min'][1])} | {int(JSON_DATA_WEATHER['daily_temperatures_max'][1])}"
-        day_3_min_max_temp = f"{int(JSON_DATA_WEATHER['daily_temperatures_min'][2])} | {int(JSON_DATA_WEATHER['daily_temperatures_max'][2])}"
 
         sunrise = format_datetime(JSON_DATA_WEATHER['current_sunrise'], df_sun)
         sunset = format_datetime(JSON_DATA_WEATHER['current_sunset'], df_sun)
 
-        wind_direction = str(JSON_DATA_WEATHER['current_winddirection'])
         wind_speed = float(JSON_DATA_WEATHER['current_windspeed'])
         wind_speed = wind_speed if METRIC else wind_speed / 1.609
         wind_speed_unit = 'km/h' if METRIC else 'mph'
         wind_speed_string = str(f'{round(wind_speed, 1)} {wind_speed_unit}')
 
-        DrawImage(new_surf, images['wifi'], 5, size=15, fillcolor=RED if CONNECTION_ERROR else GREEN).left()
-        DrawImage(new_surf, images['refresh'], 5, size=15, fillcolor=RED if REFRESH_ERROR else GREEN).right(8)
-        DrawImage(new_surf, images['path'], 5, size=15, fillcolor=RED if PATH_ERROR else GREEN).right(-5)
+        current_humidity = JSON_DATA_WEATHER['current_humidity']
+        current_humidity_string = str(current_humidity) + "%"
 
-        DrawImage(new_surf, images[WEATHERICON], 68, size=100).center(2, 0, offset=10)
+        current_pressure = JSON_DATA_WEATHER['current_pressure']
+        current_pressure_string = str(current_pressure) + " mbar"
 
-        if not ANIMATION:
-            if PRECIPTYPE == config['LOCALE']['RAIN_STR']:
+        current_uvi = JSON_DATA_WEATHER['uv_index_max']
 
-                DrawImage(new_surf, images['preciprain'], size=20).draw_position(pos=(155, 140))
+        DrawImage(new_surf, images[WEATHERICON], size=120).draw_position(pos=(30, 80))
 
-            elif PRECIPTYPE == config['LOCALE']['SNOW_STR']:
+        temp_out_unit = "°C" if METRIC else "°F"
+        temp_out = str(round(JSON_DATA_WEATHER["current_temperature"]))
+        apparent_temperature = JSON_DATA_WEATHER['apparent_temperature']
+        apparent_temperature_string = config['LOCALE']['FEELS_LIKE'] + " " + str(apparent_temperature) + temp_out_unit
 
-                DrawImage(new_surf, images['precipsnow'], size=20).draw_position(pos=(155, 140))
+        DrawString(new_surf, temp_out, FONT_HUGE, BLACK, 90).right(560)
+        DrawString(new_surf, temp_out_unit, FONT_BIG, BLACK, 101).right(530)
+        DrawString(new_surf, apparent_temperature_string, FONT_MEDIUM, BLACK, 155).right(530)
 
-        DrawString(new_surf, temp_out_string, FONT_BIG, ORANGE, 75).right()
+        # Draw daily forcast
+        for i, day in enumerate(FORECASTICON_DAYS):
+            day_ts = format_date(JSON_DATA_WEATHER['daily_dates'][i], df_forecast)
+            DrawString(new_surf, day_ts, FONT_SMALL_BOLD, MAIN_FONT, 360).left(110 * i + 50)
 
-        DrawString(new_surf, precip_string, FONT_BIG, PRECIPCOLOR, 105).right()
-        DrawString(new_surf, PRECIPTYPE, FONT_SMALL_BOLD, PRECIPCOLOR, 140).right()
+            day_max_temp = int(JSON_DATA_WEATHER['daily_temperatures_max'][i])
+            day_min_temp = int(JSON_DATA_WEATHER['daily_temperatures_min'][i])
+            DrawString(new_surf, str(day_max_temp) + "° / " + str(day_min_temp) + "°", FONT_SMALL_BOLD, MAIN_FONT,
+                       447).center(1, 0, 110 * i - 330)
 
-        if DISPLAY_MODES[DISPLAY_MODE] == "ForecastSunsetWind":
-            DrawImage(new_surf, images[FORECASTICON_DAY_1], 200, size=50).center(3, 0)
-            DrawImage(new_surf, images[FORECASTICON_DAY_2], 200, size=50).center(3, 1)
-            DrawImage(new_surf, images[FORECASTICON_DAY_3], 200, size=50).center(3, 2)
+            DrawImage(new_surf, images[day], size=70).draw_position(pos=(110 * i + 35, 375))
 
-            DrawImage(new_surf, images['sunrise'], 260, size=25).left()
-            DrawImage(new_surf, images['sunset'], 290, size=25).left()
+        # Moon
+        DrawString(new_surf, config['LOCALE']['MOON'], FONT_SMALL_BOLD, MAIN_FONT, 360).left(110 * 6 + 50)
 
-            draw_wind_layer(new_surf, JSON_DATA_WEATHER['current_winddirection'], 285)
+        draw_moon_layer(new_surf, int(708 * ZOOM), int(385 * ZOOM), int(60 * ZOOM))
 
-            draw_moon_layer(new_surf, int(255 * ZOOM), int(60 * ZOOM))
+        grid_data = [[images['sunset'], sunset],
+                     [images['sunrise'], sunrise],
+                     [images['humidity'], current_humidity_string],
+                     [images['wind'], wind_speed_string],
+                     [images['uvi'], current_uvi],
+                     [images['pressure'], current_pressure_string], ]
 
-            DrawString(new_surf, day_1_ts, FONT_SMALL_BOLD, ORANGE, 165).center(3, 0)
-            DrawString(new_surf, day_2_ts, FONT_SMALL_BOLD, ORANGE, 165).center(3, 1)
-            DrawString(new_surf, day_3_ts, FONT_SMALL_BOLD, ORANGE, 165).center(3, 2)
+        # Draw "data grid"
+        for x in range(2):
+            for y in range(3):
+                DrawString(new_surf, str(grid_data[y * 2 + x][1]), FONT_MEDIUM_BOLD, MAIN_FONT,
+                           105 + 44 * y).center(1, 0, -225 * x + 90 + 225)
+                DrawImage(new_surf, grid_data[y * 2 + x][0], 95 + 44 * y, size=40).right(225 * x + 150)
 
-            DrawString(new_surf, day_1_min_max_temp, FONT_SMALL_BOLD, MAIN_FONT, 180).center(3, 0)
-            DrawString(new_surf, day_2_min_max_temp, FONT_SMALL_BOLD, MAIN_FONT, 180).center(3, 1)
-            DrawString(new_surf, day_3_min_max_temp, FONT_SMALL_BOLD, MAIN_FONT, 180).center(3, 2)
+        draw_hourly_temp(new_surf, int(230 * ZOOM), int(710 * ZOOM), int(45 * ZOOM),
+                         JSON_DATA_WEATHER['hourly_temperatures'])
 
-            DrawString(new_surf, sunrise, FONT_SMALL_BOLD, MAIN_FONT, 265).left(30)
-            DrawString(new_surf, sunset, FONT_SMALL_BOLD, MAIN_FONT, 292).left(30)
-
-            DrawString(new_surf, wind_direction, FONT_SMALL_BOLD, MAIN_FONT, 250).center(3, 2)
-            DrawString(new_surf, wind_speed_string, FONT_SMALL_BOLD, MAIN_FONT, 300).center(3, 2)
-
-        elif DISPLAY_MODES[DISPLAY_MODE] == "HourlyTemperaturesPrecipitation":
-            draw_hourly_temp(new_surf, int(190 * ZOOM), int(180 * ZOOM), int(50 * ZOOM),
-                             JSON_DATA_WEATHER['hourly_temperatures'])
-
-            draw_hourly_precipitation_probability(new_surf, int(250 * ZOOM), int(180 * ZOOM), int(50 * ZOOM),
-                                                  JSON_DATA_WEATHER['hourly_precipitation_probability'])
-
-        elif DISPLAY_MODES[DISPLAY_MODE] == "PowerCalls":
-
-            DrawImage(new_surf, images['power'], size=50).draw_position(pos=(10, 180))
-
-            if POWER_DATA > 0:
-                DrawString(new_surf, str(POWER_DATA) + 'W', FONT_BIG, RED, 182).left(60, 0)
-            else:
-                DrawString(new_surf, str(POWER_DATA) + 'W', FONT_BIG, GREEN, 182).left(60, 0)
-
-            for i in range(len(JSON_DATA_CALLS["calls_number"])):
-                call_number = JSON_DATA_CALLS["calls_number"][i]
-                DrawImage(new_surf, images['c' + str(JSON_DATA_CALLS["calls_state"][i])], 250 + i * 19 + 4,
-                          size=15).left(5)
-                DrawString(new_surf, JSON_DATA_CALLS["calls_number"][i], FONT_SMALL_BOLD, MAIN_FONT, 250 + i * 19).left(
-                    25, 0)
-
-                yesterday = datetime.date.today() - datetime.timedelta(days=1)
-                calldate = datetime.datetime(JSON_DATA_CALLS["calls_year"][i], JSON_DATA_CALLS["calls_month"][i],
-                                             JSON_DATA_CALLS["calls_day"][i])
-
-                hour_str = "{:02d}".format(JSON_DATA_CALLS["calls_hour"][i])
-                minute_str = "{:02d}".format(JSON_DATA_CALLS["calls_minute"][i])
-
-                if calldate == datetime.date.today():
-                    DrawString(new_surf, 'Heute', FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
-                        len(call_number) * 9 + 25, 0)
-                    DrawString(new_surf, hour_str + ':' + minute_str, FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
-                        len(call_number) * 9 + 25, 0)
-                elif calldate == yesterday:
-                    DrawString(new_surf, 'Gestern', FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
-                        len(call_number) * 9 + 25, 0)
-                    DrawString(new_surf, hour_str + ':' + minute_str, FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(
-                        len(call_number) * 9 + 25, 0)
-                else:
-                    DrawString(new_surf, str(calldate.day) + '.' + str(calldate.month) + '.' + str(calldate.year),
-                               FONT_SMALLEST, MAIN_FONT, 250 + i * 19).left(len(call_number) * 9 + 25, 0)
+        draw_hourly_precipitation_probability(new_surf, int(325 * ZOOM), int(710 * ZOOM), int(15 * ZOOM),
+                            JSON_DATA_WEATHER['hourly_precipitation_probability'])
 
         weather_surf = new_surf
 
-        logger.info(f'temp out: {temp_out_string}')
-        logger.info(f'{PRECIPTYPE}: {precip_string}')
+        logger.info(f'temp out: {temp_out}')
         logger.info(f'icon: {WEATHERICON}')
-        logger.info(f'forecast: '
-                    f'{day_1_ts} {day_1_min_max_temp} {FORECASTICON_DAY_1}; '
-                    f'{day_2_ts} {day_2_min_max_temp} {FORECASTICON_DAY_2}; '
-                    f'{day_3_ts} {day_3_min_max_temp} {FORECASTICON_DAY_3}')
+        #Seems to produce errors on Ubuntu:
+        #logger.info(f'forecast: 'f'{str(format_date(JSON_DATA_WEATHER['daily_dates'][0], df_forecast))} {int(JSON_DATA_WEATHER['daily_temperatures_min'][0])} {FORECASTICON_DAYS[0]}; '
+        #            f'{str(format_date(JSON_DATA_WEATHER['daily_dates'][1], df_forecast))} {int(JSON_DATA_WEATHER['daily_temperatures_min'][1])} {FORECASTICON_DAYS[1]}; '
+        #             f'{str(format_date(JSON_DATA_WEATHER['daily_dates'][2], df_forecast))} {int(JSON_DATA_WEATHER['daily_temperatures_min'][2])} {FORECASTICON_DAYS[2]}')
         logger.info(f'sunrise: {sunrise} ; sunset {sunset}')
         logger.info(f'WindSpeed: {wind_speed_string}')
 
@@ -920,20 +776,6 @@ class Update(object):
         Update.read_json()
 
 
-class PowerThread(threading.Thread):
-    def run(self):
-        global POWER_DATA
-
-        while 1:
-            with Client(
-                    'http://192.168.178.4:8123/api',
-                    'REPLACE WITH TOKEN'
-            ) as client:
-                POWER_DATA = int(client.get_state(entity_id='sensor.amis_power_saldo_w').state)
-
-            time.sleep(1)
-
-
 def format_date(date_string, date_format):
     return datetime.datetime.strptime(date_string, "%Y-%m-%d").strftime(date_format)
 
@@ -950,17 +792,25 @@ def get_brightness():
 def draw_time_layer():
     current_datetime = datetime.datetime.now()
 
+    # Calculate how many minutes to add to round up to the next 5-minute mark
+    minute = current_datetime.minute
+    remainder = minute % 5
+    if remainder != 0:
+        # Add minutes to get to next multiple of 5
+        add_minutes = 5 - remainder
+        current_datetime = current_datetime + datetime.timedelta(minutes=add_minutes)
+
     date_day_string = current_datetime.strftime(theme["DATE_FORMAT"]["DATE"])
     date_time_string = current_datetime.strftime(theme["DATE_FORMAT"]["TIME"])
 
     logger.debug(f'Day: {date_day_string}')
     logger.debug(f'Time: {date_time_string}')
 
-    DrawString(time_surf, date_day_string, DATE_FONT, MAIN_FONT, 0).center(1, 0)
-    DrawString(time_surf, date_time_string, CLOCK_FONT, MAIN_FONT, 25).center(1, 0)
+    DrawString(time_surf, date_day_string, DATE_FONT, MAIN_FONT, 68).center(1, 0)
+    DrawString(time_surf, date_time_string, CLOCK_FONT, MAIN_FONT, 0).center(1, 0)
 
 
-def draw_moon_layer(surf, y, size):
+def draw_moon_layer(surf, x, y, size):
     # based on @miyaichi's fork -> great idea :)
     _size = 1000
     dt = datetime.datetime.strptime(JSON_DATA_WEATHER['daily_dates'][0], "%Y-%m-%d")
@@ -972,7 +822,7 @@ def draw_moon_layer(surf, y, size):
     radius = int(_size / 2)
 
     # draw full moon
-    draw.ellipse([(1, 1), (_size, _size)], fill=WHITE)
+    draw.ellipse([(1, 1), (_size, _size)], fill=MOONLIGHT)
 
     # draw dark side of the moon
     theta = moon_age / 14.765 * math.pi
@@ -980,19 +830,19 @@ def draw_moon_layer(surf, y, size):
 
     for _y in range(-radius, radius, 1):
         alpha = math.acos(_y / radius)
-        x = radius * math.sin(alpha)
+        _x = radius * math.sin(alpha)
         length = radius * math.cos(theta) * math.sin(alpha)
 
         if moon_age < 15:
-            start = (radius - x, radius + _y)
+            start = (radius - _x, radius + _y)
             end = (radius + length, radius + _y)
         else:
             start = (radius - length, radius + _y)
-            end = (radius + x, radius + _y)
+            end = (radius + _x, radius + _y)
 
-        draw.line((start, end), fill=DARK_GRAY)
+        draw.line((start, end), fill=MOONDARK)
 
-        sum_x += 2 * x
+        sum_x += 2 * _x + x
         sum_length += end[0] - start[0]
 
     logger.debug(f'moon phase age: {moon_age} percentage: {round(100 - (sum_length / sum_x) * 100, 1)}')
@@ -1000,50 +850,7 @@ def draw_moon_layer(surf, y, size):
     image = image.resize((size, size), Image.LANCZOS if AA else Image.BILINEAR)
     image = pygame.image.fromstring(image.tobytes(), image.size, image.mode)
 
-    x = (SURFACE_WIDTH / 2) - (size / 2)
-
     surf.blit(image, (x, y))
-
-
-def draw_wind_layer(surf, angle, y):
-    # center the wind direction icon and circle on surface
-    DrawImage(surf, images['circle'], y, size=30, fillcolor=WHITE).draw_middle_position_icon()
-    DrawImage(surf, images['arrow'], y, size=30, fillcolor=RED, angle=-angle).draw_middle_position_icon()
-
-    logger.debug(f'wind direction: {angle}')
-
-
-def draw_statusbar():
-    global CONNECTION, READING, UPDATING
-
-    if CONNECTION:
-        DrawImage(dynamic_surf, images['wifi'], 5, size=15, fillcolor=BLUE).left()
-        if pygame.time.get_ticks() >= CONNECTION:
-            CONNECTION = None
-
-    if UPDATING:
-        DrawImage(dynamic_surf, images['refresh'], 5, size=15, fillcolor=BLUE).right(8)
-        if pygame.time.get_ticks() >= UPDATING:
-            UPDATING = None
-
-    if READING:
-        DrawImage(dynamic_surf, images['path'], 5, size=15, fillcolor=BLUE).right(-5)
-        if pygame.time.get_ticks() >= READING:
-            READING = None
-
-
-def draw_fps():
-    DrawString(dynamic_surf, str(int(clock.get_fps())), FONT_SMALL_BOLD, RED, 20).left()
-
-
-# ToDo: make this useful for touch events
-def draw_event(color=RED):
-    pos = pygame.mouse.get_pos()
-
-    size = 20
-    radius = int(size / 2)
-    new_pos = (int(pos[0] - FIT_SCREEN[0] - (radius * ZOOM)), int(pos[1] - FIT_SCREEN[1] - (radius * ZOOM)))
-    DrawImage(mouse_surf, images['circle'], size=size, fillcolor=color).draw_absolut_position(new_pos)
 
 
 def create_scaled_surf(surf, aa=False):
@@ -1055,87 +862,77 @@ def create_scaled_surf(surf, aa=False):
     return scaled_surf
 
 
-timer = PowerThread()
-timer.start()
-
-
 def loop():
     Update.run()
 
     running = True
 
     while running:
-        tft_surf.fill(BACKGROUND)
+        now = datetime.datetime.now()
 
-        # fill the actual main surface and blit the image/weather layer
-        display_surf.fill(BACKGROUND)
-        display_surf.blit(weather_surf, (0, 0))
+        # Only update when minute is multiple of 5 and second is 0
+        if not config["SERVER_MODE"] or now.minute % 2 == 0 and now.second < 30:
+            tft_surf.fill(BACKGROUND)
 
-        # fill the dynamic layer, make it transparent and use draw functions that write to that surface
-        dynamic_surf.fill(BACKGROUND)
-        dynamic_surf.set_colorkey(BACKGROUND)
+            # fill the actual main surface and blit the image/weather layer
+            display_surf.fill(BACKGROUND)
+            display_surf.blit(weather_surf, (0, 0))
 
-        draw_statusbar()
+            # fill the dynamic layer, make it transparent and use draw functions that write to that surface
+            dynamic_surf.fill(BACKGROUND)
+            dynamic_surf.set_colorkey(BACKGROUND)
 
-        if SHOW_FPS:
-            draw_fps()
+            # finally take the dynamic surface and blit it to the main surface
+            display_surf.blit(dynamic_surf, (0, 0))
 
-        if ANIMATION:
-            my_particles.move(dynamic_surf, my_particles_list)
+            # now do the same for the time layer so it did not interfere with the other layers
+            # fill the layer and make it transparent as well
+            time_surf.fill(BACKGROUND)
+            time_surf.set_colorkey(BACKGROUND)
 
-        # finally take the dynamic surface and blit it to the main surface
-        display_surf.blit(dynamic_surf, (0, 0))
+            # draw the time to the main layer
+            draw_time_layer()
+            display_surf.blit(time_surf, (0, 0))
 
-        # now do the same for the time layer so it did not interfere with the other layers
-        # fill the layer and make it transparent as well
-        time_surf.fill(BACKGROUND)
-        time_surf.set_colorkey(BACKGROUND)
+            for event in pygame.event.get():
 
-        # draw the time to the main layer
-        draw_time_layer()
-        display_surf.blit(time_surf, (0, 0))
-
-        # # draw the mouse events
-        # mouse_surf.fill(BACKGROUND)
-        # mouse_surf.set_colorkey(BACKGROUND)
-        # draw_event(WHITE)
-
-        for event in pygame.event.get():
-
-            if event.type == pygame.QUIT:
-
-                running = False
-
-                quit_all()
-
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-
-                if pygame.MOUSEBUTTONDOWN:
-                    draw_event()
-
-            elif event.type == pygame.KEYDOWN:
-
-                if event.key == pygame.K_ESCAPE:
+                if event.type == pygame.QUIT:
 
                     running = False
 
                     quit_all()
 
-                elif event.key == pygame.K_SPACE:
-                    shot_time = format_datetime(time.time(), "%Y-%m-%d %H-%M-%S")
-                    pygame.image.save(display_surf, f'screenshot-{shot_time}.png')
-                    logger.info(f'Screenshot created at {shot_time}')
+                elif event.type == pygame.KEYDOWN:
 
-        # display_surf.blit(mouse_surf, (0, 0))
+                    if event.key == pygame.K_ESCAPE:
 
-        # finally take the main surface and blit it to the tft surface
-        tft_surf.blit(create_scaled_surf(display_surf, aa=AA), FIT_SCREEN)
+                        running = False
 
-        # update the display with all surfaces merged into the main one
-        pygame.display.update()
+                        quit_all()
 
-        # do it as often as FPS configured (30 FPS recommend for particle simulation, 15 runs fine too, 60 is overkill)
-        clock.tick(FPS)
+                    elif event.key == pygame.K_SPACE:
+                        pygame.image.save(display_surf, 'screenshot.png')
+                        logger.info('Screenshot created')
+
+            # finally take the main surface and blit it to the tft surface
+            tft_surf.blit(create_scaled_surf(display_surf, aa=AA), FIT_SCREEN)
+
+            # update the display with all surfaces merged into the main one
+            pygame.display.update()
+
+            # Sleep a bit to reduce CPU usage
+            if config["SERVER_MODE"]:
+                pygame.image.save(display_surf, 'temp_screenshot.png')
+
+                # Open the PNG and convert to JPG with Pillow
+                img = Image.open('temp_screenshot.png')
+                img = img.convert('RGB')  # JPG doesn't support alpha channel
+                img.save('screenshot.jpg', 'JPEG')
+
+                logger.info('Screenshot created')
+                time.sleep(30)
+
+        clock.tick(1)
 
     quit_all()
 
@@ -1143,15 +940,8 @@ def loop():
 if __name__ == '__main__':
 
     try:
-
-        if ANIMATION:
-            my_particles = Particles()
-            my_particles_list = my_particles.create_particle_list()
-
         images = image_factory(ICON_PATH)
-
         loop()
 
     except KeyboardInterrupt:
-
         quit_all()

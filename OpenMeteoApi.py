@@ -1,5 +1,5 @@
 from datetime import timedelta
-from WeatherPiTFT import config
+from WeatherPiEInk import config
 import requests
 
 # Weather code (WMO):
@@ -18,7 +18,7 @@ import requests
 # 96, 99 *	    Thunderstorm with slight and heavy hail
 
 def get_weather(current_datetime):
-    time_delta = current_datetime + timedelta(days=6)
+    time_delta = current_datetime + timedelta(days=7)
 
     # Create date strings for api
     forecast_today_str = str(current_datetime.year) + '-' \
@@ -40,18 +40,16 @@ def get_weather(current_datetime):
         'daily_temperatures_min': weather_response['daily']['temperature_2m_min'][1:],
         'daily_temperatures_max': weather_response['daily']['temperature_2m_max'][1:],
         'daily_weathercodes': weather_response['daily']['weathercode'][1:],
-        'daily_precipitation_sum': weather_response['daily']['precipitation_sum'][1:],
-        'daily_rain_sum': weather_response['daily']['rain_sum'][1:],
-        'daily_snowfall_sum': weather_response['daily']['snowfall_sum'][1:],
-        'hourly_temperatures': weather_response['hourly']['temperature_2m'][current_datetime.hour:current_datetime.hour + 24],
-        'hourly_precipitation_probability': weather_response['hourly']['precipitation_probability'][current_datetime.hour:current_datetime.hour + 24],
-        'current_weathercode': weather_response['hourly']['weathercode'][0],
+        'hourly_temperatures': weather_response['hourly']['temperature_2m'][current_datetime.hour + 1:current_datetime.hour + 24],
+        'hourly_precipitation_probability': weather_response['hourly']['precipitation_probability'][current_datetime.hour + 1:current_datetime.hour + 24],
+        'current_weathercode': weather_response['hourly']['weathercode'][current_datetime.hour],
         'current_temperature': weather_response['hourly']['temperature_2m'][current_datetime.hour:current_datetime.hour + 1][0],
         'current_humidity': weather_response['hourly']['relativehumidity_2m'][current_datetime.hour:current_datetime.hour + 1][0],
         'current_windspeed': weather_response['hourly']['windspeed_10m'][current_datetime.hour:current_datetime.hour + 1][0],
-        'current_winddirection': weather_response['hourly']['winddirection_10m'][current_datetime.hour:current_datetime.hour + 1][0],
-        'current_precipitation_probability': weather_response['hourly']['precipitation_probability'][current_datetime.hour:current_datetime.hour + 1][0],
-        'current_precipitation_sum': weather_response['daily']['precipitation_sum'][0],
         'current_sunrise': weather_response['daily']['sunrise'][0],
         'current_sunset': weather_response['daily']['sunset'][0],
+        'relative_humidity_2m': weather_response['current']['relative_humidity_2m'],
+        'current_pressure': weather_response['current']['pressure_msl'],
+        'apparent_temperature': weather_response['current']['apparent_temperature'],
+        'uv_index_max': weather_response['daily']['uv_index_max'][0],
     }
