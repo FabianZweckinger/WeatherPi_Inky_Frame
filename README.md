@@ -3,6 +3,11 @@
 * Forked from this [WeatherPi_TFT project by LoveBootCaptain](https://github.com/LoveBootCaptain/WeatherPi_TFT).
 * Inspired by [InkyPi weather plugin by fatihak](https://github.com/fatihak/InkyPi).
 
+## Showcase
+<img src="GithubShowcase1.jpg" alt="App Showcase" >
+<img src="GithubShowcase2.jpg" alt="App Showcase" width="50%" height="50%">
+<img src="screenshot.jpg" alt="App Showcase" width="50%" height="50%">
+
 ## Key differences:
 * Modified to run on [Inky Frame 7.3" (Pico 2 W Aboard)](https://shop.pimoroni.com/products/inky-frame-7-3).
 * Using free [Open Metro API](https://open-meteo.com/) (no account needed) instead of [weatherbit.io](weatherbit.io).
