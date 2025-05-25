@@ -1,0 +1,28 @@
+{
+  "SERVER_MODE": false,
+  "SERVER_Port": 8642,
+  "DISPLAY": {
+    "WIDTH": 800,
+    "HEIGHT": 480,
+    "AA": false,
+    "FRAMEBUFFER": "/dev/fb1"
+  },
+  "OPENMETRO_WEATHER_LAT": "48",
+  "OPENMETRO_WEATHER_LONG": "13",
+  "OPENMETRO_TIMEZONE": "Europe%2FBerlin",
+  "OPENMETRO_URL": "https://api.open-meteo.com/v1/forecast?latitude={0}&longitude={1}&daily=weathercode,sunrise,sunset,temperature_2m_max,temperature_2m_min,uv_index_max&hourly=temperature_2m,precipitation_probability,relativehumidity_2m,windspeed_10m,winddirection_10m,weathercode&current=relative_humidity_2m,pressure_msl,apparent_temperature&timezone={2}&start_date={3}&end_date={4}",
+  "LOCALE": {
+    "ISO": "de_DE",
+    "SUNRISE": "Sonnenaufgang",
+    "SUNSET": "Sonnenuntergang",
+    "MOON": "Mond",
+    "FEELS_LIKE": "Gefuehlt",
+    "METRIC": true
+  },
+  "THEME": "default.theme",
+  "TIMER": {
+    "UPDATE": 420,
+    "RELOAD": 60
+  },
+  "ENV": "Dev"
+}
