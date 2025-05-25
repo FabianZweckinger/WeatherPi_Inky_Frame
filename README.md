@@ -4,7 +4,7 @@
 * Inspired by [InkyPi weather plugin by fatihak](https://github.com/fatihak/InkyPi).
 
 ## Showcase
-<img src="GithubShowcase2.jpg" alt="App Showcase" width="50%" height="50%">
+<img src="GithubShowcase.jpg" alt="App Showcase" width="50%" height="50%">
 <img src="screenshot.jpg" alt="App Showcase" width="50%" height="50%">
 
 ## Key differences:
